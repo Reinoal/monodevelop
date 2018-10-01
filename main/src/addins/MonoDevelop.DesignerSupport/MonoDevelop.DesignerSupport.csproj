@@ -46,6 +46,9 @@
       <HintPath>..\..\..\packages\Mono.Cecil.0.10.0-beta6\lib\net40\Mono.Cecil.Rocks.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Xamarin.Mac">
+      <HintPath>..\..\..\external\Xamarin.Mac.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\core\MonoDevelop.Core\MonoDevelop.Core.csproj">
@@ -126,6 +129,13 @@
     <Compile Include="MonoDevelop.DesignerSupport.Projects\ImplicitFrameworkAssemblyReferenceDescriptor.cs" />
     <Compile Include="MonoDevelop.DesignerSupport.Toolbox\ToolboxExtensions.cs" />
     <Compile Include="MonoDevelop.DesignerSupport.Toolbox\ICustomTooltipToolboxNode.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\ToggleButton.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\Extensions.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\NativeViewHelper.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\ProgressIndicator.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\ImageCollectionViewItem.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\CollectionItemView.cs" />
+    <Compile Include="MonoDevelop.DesignerSupport.Toolbox\CollectionView.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="MonoDevelop.DesignerSupport.addin.xml" />

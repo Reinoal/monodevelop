@@ -30,20 +30,17 @@
 //
 
 using System;
-
 using MonoDevelop.Ide.Gui;
-
-using MonoDevelop.DesignerSupport;
-using MonoDevelop.DesignerSupport.Toolbox;
 using MonoDevelop.Components;
+using Xwt;
 
 namespace MonoDevelop.DesignerSupport
 {
-	
 	public class ToolboxPad : PadContent
 	{
 		Toolbox.Toolbox toolbox;
-		
+		Gtk.Widget widget;
+
 		public ToolboxPad ()
 		{
 		}
@@ -52,13 +49,14 @@ namespace MonoDevelop.DesignerSupport
 		{
 			base.Initialize (container);
 			toolbox = new Toolbox.Toolbox (DesignerSupport.Service.ToolboxService, container);
+			var wd = Xwt.Toolkit.CurrentEngine.WrapWidget (toolbox, NativeWidgetSizing.DefaultPreferredSize);
+			widget = (Gtk.Widget)Xwt.Toolkit.CurrentEngine.GetNativeWidget (wd);
 		}
-
 		
 		#region AbstractPadContent implementations
 		
 		public override Control Control {
-			get { return toolbox; }
+			get { return widget; }
 		}
 		
 		#endregion

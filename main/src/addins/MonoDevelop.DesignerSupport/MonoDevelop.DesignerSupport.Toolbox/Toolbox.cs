@@ -31,7 +31,6 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using Gtk;
 using System.Drawing.Design;
 using MonoDevelop.Core;
 using MonoDevelop.Ide.Gui;
@@ -40,149 +39,260 @@ using MonoDevelop.Components.Commands;
 using MonoDevelop.Components.Docking;
 using MonoDevelop.Ide;
 using MonoDevelop.Components;
+using AppKit;
+using Xwt;
+using System.Drawing;
+using Xwt.Drawing;
+using System.Threading.Tasks;
 
 namespace MonoDevelop.DesignerSupport.Toolbox
 {
-	public class Toolbox : VBox, IPropertyPadProvider, IToolboxConfiguration
+
+	public class ScrollContainerView : NSScrollView
+	{
+		public ScrollContainerView (NSView content)
+		{
+			HasVerticalScroller = true;
+			HasHorizontalScroller = false;
+			TranslatesAutoresizingMaskIntoConstraints = false;
+			DocumentView = content;
+		}
+	}
+
+	public class Toolbox : NSView, IPropertyPadProvider, IToolboxConfiguration
 	{
 		ToolboxService toolboxService;
-		
+
 		ItemToolboxNode selectedNode;
-	//	Hashtable expandedCategories = new Hashtable ();
-		
-		ToolboxWidget toolboxWidget;
-		ScrolledWindow scrolledWindow;
-		
+		//Hashtable expandedCategories = new Hashtable ();
+		CollectionView toolboxWidget;
+		//ScrollContainerView scrolledWindow;
+
 		ToggleButton catToggleButton;
 		ToggleButton compactModeToggleButton;
-		SearchEntry filterEntry;
+		readonly NSSearchField filterEntry;
+
 		MonoDevelop.Ide.Gui.PadFontChanger fontChanger;
+
 		IPadWindow container;
-		Dictionary<string,int> categoryPriorities = new Dictionary<string, int> ();
-		Button toolboxAddButton;
-		
+		Dictionary<string, int> categoryPriorities = new Dictionary<string, int> ();
+
+		ImagePressedButton toolboxAddButton;
+
+		Xwt.Drawing.Image groupByCategoryImage;
+
+		int margin = 5;
+
+		List<CollectionHeaderItem> items = new List<CollectionHeaderItem> ();
+
 		public Toolbox (ToolboxService toolboxService, IPadWindow container)
-		{			
+		{
 			this.toolboxService = toolboxService;
 			this.container = container;
-			
+
 			#region Toolbar
-			DockItemToolbar toolbar = container.GetToolbar (DockPositionType.Top);
-		
-			filterEntry = new SearchEntry();
-			filterEntry.Ready = true;
-			filterEntry.HasFrame = true;
-			filterEntry.WidthRequest = 150;
-			filterEntry.Changed += new EventHandler (filterTextChanged);
-			filterEntry.Show ();
-			filterEntry.Accessible.Name = "Toolbox.SearchEntry";
-			filterEntry.Accessible.SetLabel (GettextCatalog.GetString ("Search Toolbox"));
-			filterEntry.Accessible.Description = GettextCatalog.GetString ("Enter a term to search for it in the toolbox");
+			//DockItemToolbar toolbar = container.GetToolbar (DockPositionType.Top);
+			groupByCategoryImage = ImageService.GetIcon (Ide.Gui.Stock.GroupByCategory, Gtk.IconSize.Menu);
+			var compactImage = ImageService.GetIcon ("md-compact-display", Gtk.IconSize.Menu);
+			var addImage = ImageService.GetIcon (Ide.Gui.Stock.Add, Gtk.IconSize.Menu);
 
-			toolbar.Add (filterEntry, true);
-			
-			catToggleButton = new ToggleButton ();
-			catToggleButton.Image = new ImageView (Ide.Gui.Stock.GroupByCategory, IconSize.Menu);
-			catToggleButton.Toggled += new EventHandler (toggleCategorisation);
-			catToggleButton.TooltipText = GettextCatalog.GetString ("Show categories");
-			catToggleButton.Accessible.Name = "Toolbox.ShowCategories";
-			catToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Show Categories"));
-			catToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle to show categories");
-			toolbar.Add (catToggleButton);
-			
-			compactModeToggleButton = new ToggleButton ();
-			compactModeToggleButton.Image = new ImageView (ImageService.GetIcon ("md-compact-display", IconSize.Menu));
-			compactModeToggleButton.Toggled += new EventHandler (ToggleCompactMode);
-			compactModeToggleButton.TooltipText = GettextCatalog.GetString ("Use compact display");
-			compactModeToggleButton.Accessible.Name = "Toolbox.CompactButton";
-			compactModeToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Compact Layout"));
-			compactModeToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle for toolbox to use compact layout");
-			toolbar.Add (compactModeToggleButton);
-	
-			toolboxAddButton = new Button (new ImageView (Ide.Gui.Stock.Add, IconSize.Menu));
-			toolbar.Add (toolboxAddButton);
-			toolboxAddButton.TooltipText = GettextCatalog.GetString ("Add toolbox items");
-			toolboxAddButton.Clicked += new EventHandler (toolboxAddButton_Clicked);
-			toolboxAddButton.Accessible.Name = "Toolbox.Add";
-			toolboxAddButton.Accessible.SetLabel (GettextCatalog.GetString ("Add"));
-			toolboxAddButton.Accessible.Description = GettextCatalog.GetString ("Add toolbox items");
+			var verticalStackView = NativeViewHelper.CreateVerticalStackView (10);
+			AddSubview (verticalStackView);
 
-			toolbar.ShowAll ();
+			verticalStackView.TopAnchor.ConstraintEqualToAnchor (TopAnchor, 0).Active = true;
+			verticalStackView.LeftAnchor.ConstraintEqualToAnchor (LeftAnchor, margin).Active = true;
+			verticalStackView.RightAnchor.ConstraintEqualToAnchor (RightAnchor, -margin).Active = true;
+
+			//Horizontal container
+			var hotizontalToolbar = NativeViewHelper.CreateHorizontalStackView (3);
+			verticalStackView.AddArrangedSubview (hotizontalToolbar);
+
+			filterEntry = new NSSearchField ();
+			filterEntry.TranslatesAutoresizingMaskIntoConstraints = false;
+			filterEntry.AccessibilityTitle = GettextCatalog.GetString ("Search Toolbox");
+			filterEntry.AccessibilityLabel = GettextCatalog.GetString ("Enter a term to search for it in the toolbox");
+
+			hotizontalToolbar.AddArrangedSubview (filterEntry);
+
+			filterEntry.SetContentHuggingPriorityForOrientation (250, NSLayoutConstraintOrientation.Horizontal);
+			filterEntry.SetContentCompressionResistancePriority (250, NSLayoutConstraintOrientation.Horizontal);
+
+			filterEntry.Changed += (s, e) => {
+				RefreshData ();
+			};
+
+			//filter.
+
+			//filterEntry.Ready = true;
+			//filterEntry.HasFrame = true;
+			//filterEntry.WidthRequest = 150;
+			//filterEntry.Changed += new EventHandler (filterTextChanged);
+			//filterEntry.Show ();
+			//filterEntry.Accessible.Name = "Toolbox.SearchEntry";
+			//filterEntry.Accessible.SetLabel (GettextCatalog.GetString ("Search Toolbox"));
+			//filterEntry.Accessible.Description = GettextCatalog.GetString ("Enter a term to search for it in the toolbox");
+
+			//toolbar. (filterEntry, true);
+			catToggleButton = new ToggleButton (groupByCategoryImage);
+			catToggleButton.ToolTip = GettextCatalog.GetString ("Show categories");
+
+			//catToggleButton.AccessibilityTitle Accessible.Name = "Toolbox.ShowCategories";
+			catToggleButton.AccessibilityTitle = GettextCatalog.GetString ("Show Categories");
+			catToggleButton.AccessibilityHelp = GettextCatalog.GetString ("Toggle to show categories");
+			hotizontalToolbar.AddArrangedSubview (catToggleButton);
+			catToggleButton.WidthAnchor.ConstraintEqualToConstant (30).Active = true;
+
+			catToggleButton.Toggled += toggleCategorisation;
+
+			compactModeToggleButton = new ToggleButton (compactImage);
+			compactModeToggleButton.ToolTip = GettextCatalog.GetString ("Use compact display");
+			compactModeToggleButton.AccessibilityTitle = GettextCatalog.GetString ("Compact Layout");
+			compactModeToggleButton.AccessibilityHelp = GettextCatalog.GetString ("Toggle for toolbox to use compact layout");
+			hotizontalToolbar.AddArrangedSubview (compactModeToggleButton);
+			compactModeToggleButton.WidthAnchor.ConstraintEqualToConstant (30).Active = true;
+
+			compactModeToggleButton.Toggled += ToggleCompactMode;
+
+			toolboxAddButton = new ImagePressedButton (addImage);
+			toolboxAddButton.ToolTip = GettextCatalog.GetString ("Add toolbox items");
+			toolboxAddButton.AccessibilityTitle = GettextCatalog.GetString ("Add");
+			toolboxAddButton.AccessibilityHelp = GettextCatalog.GetString ("Add toolbox items");
+
+			hotizontalToolbar.AddArrangedSubview (toolboxAddButton);
+			toolboxAddButton.WidthAnchor.ConstraintEqualToConstant (30).Active = true;
+
+			toolboxAddButton.Activated += toolboxAddButton_Clicked;
 
 			#endregion
-			
-			toolboxWidget = new ToolboxWidget ();
-			toolboxWidget.Accessible.Name = "Toolbox.Toolbox";
-			toolboxWidget.Accessible.SetLabel (GettextCatalog.GetString ("Toolbox Items"));
-			toolboxWidget.Accessible.Description = GettextCatalog.GetString ("The toolbox items");
+			defaultImage = addImage.ToNative ();
+		
+			toolboxWidget = new CollectionView ();
+			var scrollContainer = new ScrollContainerView (toolboxWidget);
 
-			toolboxWidget.SelectedItemChanged += delegate {
-				selectedNode = this.toolboxWidget.SelectedItem != null ? this.toolboxWidget.SelectedItem.Tag as ItemToolboxNode : null;
-				toolboxService.SelectItem (selectedNode);
-			};
-			this.toolboxWidget.DragBegin += delegate(object sender, Gtk.DragBeginArgs e) {
-				
-				if (this.toolboxWidget.SelectedItem != null) {
-					this.toolboxWidget.HideTooltipWindow ();
-					toolboxService.DragSelectedItem (this.toolboxWidget, e.Context);
-				}
-			};
-			this.toolboxWidget.ActivateSelectedItem += delegate {
-				toolboxService.UseSelectedItem ();
-			};
-			
-			fontChanger = new MonoDevelop.Ide.Gui.PadFontChanger (toolboxWidget, toolboxWidget.SetCustomFont, toolboxWidget.QueueResize);
-			
-			this.toolboxWidget.DoPopupMenu = ShowPopup;
-			scrolledWindow = new MonoDevelop.Components.CompactScrolledWindow ();
-			base.PackEnd (scrolledWindow, true, true, 0);
-			base.FocusChain = new Gtk.Widget [] { scrolledWindow };
-			
+			//toolboxWidget.AccessibilityTitle = GettextCatalog.GetString ("Toolbox Items");
+			//toolboxWidget.AccessibilityHelp = GettextCatalog.GetString ("The toolbox items");
+			//toolboxWidget.AddColumn (new NSTableColumn ("col") { Title = "Toolbox Items" });
+
+			verticalStackView.AddArrangedSubview (scrollContainer);
+			scrollContainer.HeightAnchor.ConstraintEqualToConstant (200).Active = true;
+			toolboxWidget.HeightAnchor.ConstraintEqualToConstant (300).Active = true;
+			//GenerateData ();
+
+			//var scrollContainer = new ScrollContainerView (toolboxWidget);
+
+			//toolboxWidget.HeightAnchor.ConstraintEqualToConstant (200).Active = true;
+
+			//toolboxWidget.SelectionChanged += delegate {
+			//	if (toolboxWidget.SelectedItem is ToolboxTableViewItem itm) {
+			//		selectedNode = itm.Node;
+			//	} else {
+			//		selectedNode = null;
+			//	}
+			//	//toolboxService.SelectItem (selectedNode);
+			//};
+			//this.toolboxWidget.DragBegin += delegate(object sender, Gtk.DragBeginArgs e) {
+
+			//	if (this.toolboxWidget.SelectedItem != null) {
+			//		this.toolboxWidget.HideTooltipWindow ();
+			//		toolboxService.DragSelectedItem (this.toolboxWidget, e.Context);
+			//	}
+			//};
+			//this.toolboxWidget.ActivateSelectedItem += delegate {
+			//	toolboxService.UseSelectedItem ();
+			//};
+
+			//fontChanger = new MonoDevelop.Ide.Gui.PadFontChanger (toolboxWidget, toolboxWidget.SetCustomFont, toolboxWidget.QueueResize);
+
+			//this.toolboxWidget.DoPopupMenu = ShowPopup;
+			//scrolledWindow = new MonoDevelop.Components.CompactScrolledWindow ();
+			//base.PackEnd (scrolledWindow, true, true, 0);
+			//base.FocusChain = new Gtk.Widget [] { scrolledWindow };
+
 			//Initialise self
-			scrolledWindow.ShadowType = ShadowType.None;
-			scrolledWindow.VscrollbarPolicy = PolicyType.Automatic;
-			scrolledWindow.HscrollbarPolicy = PolicyType.Never;
-			scrolledWindow.WidthRequest = 150;
-			scrolledWindow.Add (this.toolboxWidget);
-			
+			//scrolledWindow.ShadowType = ShadowType.None;
+			//scrolledWindow.VscrollbarPolicy = PolicyType.Automatic;
+			//scrolledWindow.HscrollbarPolicy = PolicyType.Never;
+			//scrolledWindow.WidthRequest = 150;
+			//scrolledWindow.Add (this.toolboxWidget);
+
 			//update view when toolbox service updated
-			toolboxService.ToolboxContentsChanged += delegate { Refresh (); };
-			toolboxService.ToolboxConsumerChanged += delegate { Refresh (); };
-			Refresh ();
-			
+			//toolboxService.ToolboxContentsChanged += (sender, e) => Refresh ();
+			//toolboxService.ToolboxConsumerChanged += (sender, e) => Refresh ();
+
+			GenerateData ();
+
 			//set initial state
-			this.toolboxWidget.ShowCategories = catToggleButton.Active = true;
-			compactModeToggleButton.Active = MonoDevelop.Core.PropertyService.Get ("ToolboxIsInCompactMode", false);
-			this.toolboxWidget.IsListMode  = !compactModeToggleButton.Active;
-			this.ShowAll ();
+			//this.toolboxWidget.ShowCategories = catToggleButton.IsToggled = true;
+			compactModeToggleButton.IsToggled = MonoDevelop.Core.PropertyService.Get ("ToolboxIsInCompactMode", false);
+			//this.toolboxWidget.IsListMode  = !compactModeToggleButton.IsToggled;
+			//this.ShowAll ();
 		}
-		
+		NSImage defaultImage;
+	
+		void GenerateData ()
+		{
+			//Data = new List<TableViewItem> () {
+			//	new TableViewItem () { Image =  groupByCategoryImage, Label = "fdeeeeesdasdsadsddddsasadassddas" },
+			//	new TableViewItem ()  { Image =  groupByCategoryImage, Label = "12" },
+			//	new TableViewItem ()  { Image =  groupByCategoryImage, Label = "3" }
+			//};
+
+			var header = new CollectionHeaderItem () { Label = "header1" };
+			header.Items.Add (new CollectionItem () { Label = "1", Image = defaultImage });
+			header.Items.Add (new CollectionItem () { Label = "2", Image = defaultImage });
+			header.Items.Add (new CollectionItem () { Label = "3", Image = defaultImage });
+			items.Add (header);
+
+			header = new CollectionHeaderItem () { Label = "header2" };
+			header.Items.Add (new CollectionItem () { Label = "12", Image = defaultImage });
+			header.Items.Add (new CollectionItem () { Label = "22", Image = defaultImage });
+			header.Items.Add (new CollectionItem () { Label = "33", Image = defaultImage });
+			items.Add (header);
+
+
+			RefreshData ();
+		}
+
+		void RefreshData ()
+		{
+			var filteredItems = items;
+
+			if (!string.IsNullOrEmpty (filterEntry.StringValue)) {
+				filteredItems = items.Where (h => h.Label.Contains (filterEntry.StringValue)).ToList ();
+			}
+
+			toolboxWidget.SetData (filteredItems);
+		}
+
+
 		#region Toolbar event handlers
-		
+
 		void ToggleCompactMode (object sender, EventArgs e)
 		{
-			this.toolboxWidget.IsListMode = !compactModeToggleButton.Active;
-			MonoDevelop.Core.PropertyService.Set ("ToolboxIsInCompactMode", compactModeToggleButton.Active);
+			toolboxWidget.CompactMode ();
+			//this.toolboxWidget.IsListMode = !compactModeToggleButton.Active;
+			//MonoDevelop.Core.PropertyService.Set ("ToolboxIsInCompactMode", compactModeToggleButton.Active);
 
-			if (compactModeToggleButton.Active) {
-				compactModeToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Full Layout"));
-				compactModeToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle for toolbox to use full layout");
-			} else {
-				compactModeToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Compact Layout"));
-				compactModeToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle for toolbox to use compact layout");
-			}
+			//if (compactModeToggleButton.Active) {
+			//	compactModeToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Full Layout"));
+			//	compactModeToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle for toolbox to use full layout");
+			//} else {
+			//	compactModeToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Compact Layout"));
+			//	compactModeToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle for toolbox to use compact layout");
+			//}
 		}
-		
+
 		void toggleCategorisation (object sender, EventArgs e)
 		{
-			this.toolboxWidget.ShowCategories = catToggleButton.Active;
-			if (catToggleButton.Active) {
-				catToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Hide Categories"));
-				catToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle to hide toolbox categories");
-			} else {
-				catToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Show Categories"));
-				catToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle to show toolbox categories");
-			}
+			toolboxWidget.ImageMode ();
+			//this.toolboxWidget.ShowCategories = catToggleButton.Active;
+			//if (catToggleButton.Active) {
+			//	catToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Hide Categories"));
+			//	catToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle to hide toolbox categories");
+			//} else {
+			//	catToggleButton.Accessible.SetLabel (GettextCatalog.GetString ("Show Categories"));
+			//	catToggleButton.Accessible.Description = GettextCatalog.GetString ("Toggle to show toolbox categories");
+			//}
 		}
 		
 		void filterTextChanged (object sender, EventArgs e)
@@ -192,16 +302,16 @@ namespace MonoDevelop.DesignerSupport.Toolbox
 
 		void refilter ()
 		{
-			foreach (ToolboxWidgetCategory cat in toolboxWidget.Categories) {
-				bool hasVisibleChild = false;
-				foreach (ToolboxWidgetItem child in cat.Items) {
-					child.IsVisible = ((ItemToolboxNode)child.Tag).Filter (filterEntry.Entry.Text);
-					hasVisibleChild |= child.IsVisible;
-				}
-				cat.IsVisible = hasVisibleChild;
-			}
-			toolboxWidget.QueueDraw ();
-			toolboxWidget.QueueResize ();
+			//foreach (ToolboxWidgetCategory cat in toolboxWidget.Categories) {
+			//	bool hasVisibleChild = false;
+			//	foreach (ToolboxWidgetItem child in cat.Items) {
+			//		child.IsVisible = ((ItemToolboxNode)child.Tag).Filter (filterEntry.StringValue);
+			//		hasVisibleChild |= child.IsVisible;
+			//	}
+			//	cat.IsVisible = hasVisibleChild;
+			//}
+			//toolboxWidget.QueueDraw ();
+			//toolboxWidget.QueueResize ();
 		}
 		
 		async void toolboxAddButton_Clicked (object sender, EventArgs e)
@@ -215,9 +325,9 @@ namespace MonoDevelop.DesignerSupport.Toolbox
 				return;
 			CommandEntrySet eset = IdeApp.CommandService.CreateCommandEntrySet ("/MonoDevelop/DesignerSupport/ToolboxItemContextMenu");
 			if (evt != null) {
-				IdeApp.CommandService.ShowContextMenu (toolboxWidget, evt, eset, this);
+				//IdeApp.CommandService.ShowContextMenu (toolboxWidget, evt, eset, this);
 			} else {
-				IdeApp.CommandService.ShowContextMenu (toolboxWidget, Allocation.Left, Allocation.Top, eset, this);
+				//IdeApp.CommandService.ShowContextMenu (toolboxWidget, (int) Frame.Left, (int)Frame.Top, eset, this);
 			}
 		}
 
@@ -239,16 +349,20 @@ namespace MonoDevelop.DesignerSupport.Toolbox
 		}
 		
 		static readonly string GtkWidgetDomain = GettextCatalog.GetString ("GTK# Widgets");
-		
+
 		#endregion
-		
+
 		#region GUI population
-		
+
+	
+
 		Dictionary<string, ToolboxWidgetCategory> categories = new Dictionary<string, ToolboxWidgetCategory> ();
 		void AddItems (IEnumerable<ItemToolboxNode> nodes)
 		{
-			foreach (ItemToolboxNode itbn in nodes) {
+			foreach (var itbn in nodes) {
 				var newItem = new ToolboxWidgetItem (itbn);
+
+
 				if (!categories.ContainsKey (itbn.Category)) {
 					var cat = new ToolboxWidgetCategory (itbn.Category);
 					int prio;
@@ -261,11 +375,12 @@ namespace MonoDevelop.DesignerSupport.Toolbox
 					categories[itbn.Category].Add (newItem);
 			}
 		}
-		
+
+
 		public void Refresh ()
 		{
 			// GUI assert here is to catch Bug 434065 - Exception while going to the editor
-			Runtime.AssertMainThread ();
+			//Runtime.AssertMainThread ();
 			
 			if (toolboxService.Initializing) {
 				toolboxWidget.CustomMessage = GettextCatalog.GetString ("Initializing...");
@@ -277,24 +392,28 @@ namespace MonoDevelop.DesignerSupport.Toolbox
 			toolboxWidget.CustomMessage = null;
 			
 			categories.Clear ();
+
+			//Data.Clear ();
+
 			AddItems (toolboxService.GetCurrentToolboxItems ());
-			
-			Drag.SourceUnset (toolboxWidget);
-			toolboxWidget.ClearCategories ();
-			
-			var cats = categories.Values.ToList ();
-			cats.Sort ((a,b) => a.Priority != b.Priority ? a.Priority.CompareTo (b.Priority) : a.Text.CompareTo (b.Text));
-			cats.Reverse ();
-			foreach (ToolboxWidgetCategory category in cats) {
-				category.IsExpanded = true;
-				toolboxWidget.AddCategory (category);
-			}
-			toolboxWidget.QueueResize ();
-			Gtk.TargetEntry[] targetTable = toolboxService.GetCurrentDragTargetTable ();
-			if (targetTable != null)
-				Drag.SourceSet (toolboxWidget, Gdk.ModifierType.Button1Mask, targetTable, Gdk.DragAction.Copy | Gdk.DragAction.Move);
-			compactModeToggleButton.Visible = toolboxWidget.CanIconizeToolboxCategories;
-			refilter ();
+			RefreshData ();
+
+			//////Drag.SourceUnset (toolboxWidget);
+			//toolboxWidget.ClearCategories ();
+
+			//var cats = categories.Values.ToList ();
+			//cats.Sort ((a,b) => a.Priority != b.Priority ? a.Priority.CompareTo (b.Priority) : a.Text.CompareTo (b.Text));
+			//cats.Reverse ();
+			//foreach (ToolboxWidgetCategory category in cats) {
+			//	category.IsExpanded = true;
+			//	toolboxWidget.AddCategory (category);
+			//}
+			//toolboxWidget.QueueResize ();
+			//Gtk.TargetEntry[] targetTable = toolboxService.GetCurrentDragTargetTable ();
+			//if (targetTable != null)
+			//	//Drag.SourceSet (toolboxWidget, Gdk.ModifierType.Button1Mask, targetTable, Gdk.DragAction.Copy | Gdk.DragAction.Move);
+			//compactModeToggleButton.Hidden = !toolboxWidget.CanIconizeToolboxCategories;
+			//refilter ();
 		}
 		
 		void ConfigureToolbar ()
@@ -305,16 +424,16 @@ namespace MonoDevelop.DesignerSupport.Toolbox
 			
 			toolboxService.Customize (container, this);
 		}
-		
-		protected override void OnDestroyed ()
+
+		protected override void Dispose (bool disposing)
 		{
 			if (fontChanger != null) {
 				fontChanger.Dispose ();
 				fontChanger = null;
 			}
-			base.OnDestroyed ();
+			base.Dispose (disposing);
 		}
-		
+
 		#endregion
 		
 		#region IPropertyPadProvider
